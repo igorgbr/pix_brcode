@@ -23,5 +23,6 @@ erl_crash.dump
 pix_brcode-*.tar
 
 
-# Local notes for Claude Code, not part of the project.
+# Local notes, not part of the project.
 CLAUDE.md
+DEVLOG.md
