@@ -74,6 +74,41 @@ defmodule PixBrcodeTest do
     end
   end
 
+  describe "key validation" do
+    @valid_keys [
+      "12345678901",
+      "12345678901234",
+      "+5561998765432",
+      "pix@bcb.gov.br",
+      "123e4567-e89b-12d3-a456-426655440000"
+    ]
+
+    @invalid_keys [
+      "",
+      "123.456.789-01",
+      "1234567890",
+      "+0061998765432",
+      "Pix@BCB.gov.br",
+      "pix@",
+      "123E4567-E89B-12D3-A456-426655440000",
+      "12345678901\n",
+      String.duplicate("a", 70) <> "@bcb.gov.br"
+    ]
+
+    test "encode/1 accepts the DICT key formats" do
+      for key <- @valid_keys do
+        assert {:ok, payload} = PixBrcode.encode(%{@base | key: key}), key
+        assert {:ok, %{key: ^key}} = PixBrcode.decode(payload)
+      end
+    end
+
+    test "encode/1 rejects malformed keys" do
+      for key <- @invalid_keys do
+        assert PixBrcode.encode(%{@base | key: key}) == {:error, :invalid_key}, inspect(key)
+      end
+    end
+  end
+
   describe "decode/1" do
     # Builds a payload with a valid CRC from a list of top-level fields.
     defp build(fields) do
@@ -126,6 +161,9 @@ defmodule PixBrcodeTest do
 
       {:ok, wrong_gui} = PixBrcode.TLV.encode([{"00", "br.gov.bcb.xyz"}, {"01", "k"}])
       assert PixBrcode.decode(build([{"26", wrong_gui}])) == {:error, :invalid_gui}
+
+      {:ok, bad_key} = PixBrcode.TLV.encode([{"00", "br.gov.bcb.pix"}, {"01", "not a key"}])
+      assert PixBrcode.decode(build([{"26", bad_key}])) == {:error, :invalid_key}
 
       {:ok, no_key} = PixBrcode.TLV.encode([{"00", "br.gov.bcb.pix"}])
       assert PixBrcode.decode(build([{"26", no_key}])) == {:error, :missing_key}

@@ -24,7 +24,7 @@ defmodule PixBrcode do
     city = strip_accents(city)
     txid = Map.get(params, :txid) || "***"
 
-    with :ok <- check(key != "", :invalid_key),
+    with :ok <- check(valid_key?(key), :invalid_key),
          :ok <- check(String.length(name) in 1..25, :invalid_merchant_name),
          :ok <- check(String.length(city) in 1..15, :invalid_merchant_city),
          :ok <- check(txid == "***" or txid =~ ~r/^[A-Za-z0-9]{1,25}$/, :invalid_txid),
@@ -78,6 +78,7 @@ defmodule PixBrcode do
          account = Map.new(account),
          :ok <- check(account["00"] == @gui, :invalid_gui),
          :ok <- check(Map.has_key?(account, "01") or Map.has_key?(account, "25"), :missing_key),
+         :ok <- check(is_nil(account["01"]) or valid_key?(account["01"]), :invalid_key),
          {:ok, additional} <- TLV.decode(Map.get(fields, "62", "")) do
       {:ok,
        %Payload{
@@ -100,6 +101,23 @@ defmodule PixBrcode do
       true
   """
   def valid?(payload), do: match?({:ok, _}, decode(payload))
+
+  # Key formats from the DICT API spec (github.com/bacen/pix-dict-api, openapi/openapi.yaml):
+  # CPF, CNPJ, phone, e-mail (lowercase) and EVP (lowercase UUID). Any key is max 77 chars.
+  # \A and \z anchor the whole string; ^ and $ would accept a trailing "\n".
+  defp valid_key?(key) do
+    String.length(key) <= 77 and
+      Enum.any?(
+        [
+          ~r/\A[0-9]{11}\z/,
+          ~r/\A[0-9]{14}\z/,
+          ~r/\A\+[1-9][0-9]\d{1,14}\z/,
+          ~r"\A[a-z0-9.!#$&'*+/=?^_`{|}~-]+@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*\z",
+          ~r/\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/
+        ],
+        &(key =~ &1)
+      )
+  end
 
   defp check(true, _reason), do: :ok
   defp check(false, reason), do: {:error, reason}
