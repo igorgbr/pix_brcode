@@ -3,7 +3,7 @@ defmodule PixBrcode do
   Generates and reads Pix "copia e cola" payloads (BR Code).
   """
 
-  alias PixBrcode.{CRC16, TLV}
+  alias PixBrcode.{CRC16, Payload, TLV}
 
   @gui "br.gov.bcb.pix"
 
@@ -50,6 +50,56 @@ defmodule PixBrcode do
   end
 
   def encode(_params), do: {:error, :missing_required_fields}
+
+  @doc """
+  Reads a Pix payload, checking CRC, structure and GUI.
+
+      iex> {:ok, payload} = PixBrcode.decode("00020126580014br.gov.bcb.pix0136123e4567-e12b-12d1-a456-4266554400005204000053039865802BR5913Fulano de Tal6008BRASILIA62070503***63041D3D")
+      iex> {payload.type, payload.key, payload.merchant_name}
+      {:static, "123e4567-e12b-12d1-a456-426655440000", "Fulano de Tal"}
+  """
+  def decode(payload) when is_binary(payload) do
+    payload = String.trim(payload)
+    {data, crc} = String.split_at(payload, -4)
+
+    with :ok <-
+           check(
+             String.ends_with?(data, "6304") and String.upcase(crc) == CRC16.checksum(data),
+             :invalid_crc
+           ),
+         {:ok, fields} <- TLV.decode(payload),
+         :ok <-
+           check(
+             match?([{"00", "01"} | _], fields) and match?({"63", _}, List.last(fields)),
+             :invalid_format
+           ),
+         fields = Map.new(fields),
+         {:ok, account} <- TLV.decode(Map.get(fields, "26", "")),
+         account = Map.new(account),
+         :ok <- check(account["00"] == @gui, :invalid_gui),
+         :ok <- check(Map.has_key?(account, "01") or Map.has_key?(account, "25"), :missing_key),
+         {:ok, additional} <- TLV.decode(Map.get(fields, "62", "")) do
+      {:ok,
+       %Payload{
+         type: if(Map.has_key?(account, "25"), do: :dynamic, else: :static),
+         key: account["01"],
+         url: account["25"],
+         description: account["02"],
+         amount: fields["54"],
+         merchant_name: fields["59"],
+         merchant_city: fields["60"],
+         txid: additional |> Map.new() |> Map.get("05")
+       }}
+    end
+  end
+
+  @doc """
+  Returns `true` if `payload` decodes successfully.
+
+      iex> PixBrcode.valid?("00020126580014br.gov.bcb.pix0136123e4567-e12b-12d1-a456-4266554400005204000053039865802BR5913Fulano de Tal6008BRASILIA62070503***63041D3D")
+      true
+  """
+  def valid?(payload), do: match?({:ok, _}, decode(payload))
 
   defp check(true, _reason), do: :ok
   defp check(false, reason), do: {:error, reason}

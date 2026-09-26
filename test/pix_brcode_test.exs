@@ -73,4 +73,63 @@ defmodule PixBrcodeTest do
                {:error, {:too_long, "26"}}
     end
   end
+
+  describe "decode/1" do
+    # Builds a payload with a valid CRC from a list of top-level fields.
+    defp build(fields) do
+      {:ok, data} = PixBrcode.TLV.encode([{"00", "01"} | fields])
+      data = data <> "6304"
+      data <> PixBrcode.CRC16.checksum(data)
+    end
+
+    test "round trip with encode/1" do
+      params = %{
+        key: "key@example.com",
+        merchant_name: "Fulano",
+        merchant_city: "Sao Paulo",
+        amount: 1050,
+        txid: "ABC123",
+        description: "Order 42"
+      }
+
+      {:ok, payload} = PixBrcode.encode(params)
+
+      assert PixBrcode.decode(payload) ==
+               {:ok,
+                %PixBrcode.Payload{
+                  type: :static,
+                  key: "key@example.com",
+                  description: "Order 42",
+                  amount: "10.50",
+                  merchant_name: "Fulano",
+                  merchant_city: "Sao Paulo",
+                  txid: "ABC123"
+                }}
+    end
+
+    test "accepts surrounding whitespace and lowercase CRC" do
+      assert PixBrcode.valid?("  " <> String.replace(@example, "1D3D", "1d3d") <> "\n")
+    end
+
+    test "dynamic payload" do
+      {:ok, account} =
+        PixBrcode.TLV.encode([{"00", "br.gov.bcb.pix"}, {"25", "pix.example.com/qr/v2/abc"}])
+
+      assert {:ok, %{type: :dynamic, url: "pix.example.com/qr/v2/abc", key: nil}} =
+               PixBrcode.decode(build([{"26", account}, {"59", "Fulano"}]))
+    end
+
+    test "errors" do
+      assert PixBrcode.decode(String.replace(@example, "1D3D", "1D3E")) == {:error, :invalid_crc}
+      assert PixBrcode.decode("") == {:error, :invalid_crc}
+      assert PixBrcode.decode(build([{"26", "0014br.gov.bcb.pi"}])) == {:error, :invalid_tlv}
+
+      {:ok, wrong_gui} = PixBrcode.TLV.encode([{"00", "br.gov.bcb.xyz"}, {"01", "k"}])
+      assert PixBrcode.decode(build([{"26", wrong_gui}])) == {:error, :invalid_gui}
+
+      {:ok, no_key} = PixBrcode.TLV.encode([{"00", "br.gov.bcb.pix"}])
+      assert PixBrcode.decode(build([{"26", no_key}])) == {:error, :missing_key}
+      refute PixBrcode.valid?("hello")
+    end
+  end
 end
