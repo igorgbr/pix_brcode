@@ -68,6 +68,8 @@ defmodule PixBrcodeTest do
       assert PixBrcode.encode(Map.put(@base, :txid, "com espaco")) == {:error, :invalid_txid}
       assert PixBrcode.encode(Map.put(@base, :amount, "10,50")) == {:error, :invalid_amount}
       assert PixBrcode.encode(Map.put(@base, :amount, 0)) == {:error, :invalid_amount}
+      assert PixBrcode.encode(Map.put(@base, :amount, "10.50\n")) == {:error, :invalid_amount}
+      assert PixBrcode.encode(Map.put(@base, :txid, "ABC\n")) == {:error, :invalid_txid}
 
       assert PixBrcode.encode(Map.put(@base, :description, String.duplicate("a", 80))) ==
                {:error, {:too_long, "26"}}
@@ -146,14 +148,6 @@ defmodule PixBrcodeTest do
       assert PixBrcode.valid?("  " <> String.replace(@example, "1D3D", "1d3d") <> "\n")
     end
 
-    test "dynamic payload" do
-      {:ok, account} =
-        PixBrcode.TLV.encode([{"00", "br.gov.bcb.pix"}, {"25", "pix.example.com/qr/v2/abc"}])
-
-      assert {:ok, %{type: :dynamic, url: "pix.example.com/qr/v2/abc", key: nil}} =
-               PixBrcode.decode(build([{"26", account}, {"59", "Fulano"}]))
-    end
-
     test "errors" do
       assert PixBrcode.decode(String.replace(@example, "1D3D", "1D3E")) == {:error, :invalid_crc}
       assert PixBrcode.decode("") == {:error, :invalid_crc}
@@ -168,6 +162,40 @@ defmodule PixBrcodeTest do
       {:ok, no_key} = PixBrcode.TLV.encode([{"00", "br.gov.bcb.pix"}])
       assert PixBrcode.decode(build([{"26", no_key}])) == {:error, :missing_key}
       refute PixBrcode.valid?("hello")
+    end
+  end
+
+  describe "encode_dynamic/1" do
+    @dynamic %{
+      url: "pix.example.com/qr/v2/abc",
+      merchant_name: "Fulano",
+      merchant_city: "Sao Paulo"
+    }
+
+    test "round trip with decode/1" do
+      {:ok, payload} = PixBrcode.encode_dynamic(@dynamic)
+
+      assert PixBrcode.decode(payload) ==
+               {:ok,
+                %PixBrcode.Payload{
+                  type: :dynamic,
+                  url: "pix.example.com/qr/v2/abc",
+                  merchant_name: "Fulano",
+                  merchant_city: "Sao Paulo",
+                  txid: "***"
+                }}
+    end
+
+    test "errors" do
+      assert PixBrcode.encode_dynamic(%{@dynamic | url: "https://pix.example.com/qr"}) ==
+               {:error, :invalid_url}
+
+      assert PixBrcode.encode_dynamic(%{@dynamic | url: ""}) == {:error, :invalid_url}
+
+      assert PixBrcode.encode_dynamic(%{@dynamic | url: String.duplicate("a", 78)}) ==
+               {:error, {:too_long, "26"}}
+
+      assert PixBrcode.encode_dynamic(%{url: "x"}) == {:error, :missing_required_fields}
     end
   end
 end

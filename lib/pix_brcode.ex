@@ -20,17 +20,45 @@ defmodule PixBrcode do
   """
   def encode(%{key: key, merchant_name: name, merchant_city: city} = params)
       when is_binary(key) and is_binary(name) and is_binary(city) do
-    name = strip_accents(name)
-    city = strip_accents(city)
     txid = Map.get(params, :txid) || "***"
 
     with :ok <- check(valid_key?(key), :invalid_key),
-         :ok <- check(String.length(name) in 1..25, :invalid_merchant_name),
+         :ok <- check(txid == "***" or txid =~ ~r/\A[A-Za-z0-9]{1,25}\z/, :invalid_txid),
+         {:ok, amount} <- format_amount(Map.get(params, :amount)) do
+      build(params, [{"01", key}, {"02", Map.get(params, :description)}], amount, txid)
+    end
+  end
+
+  def encode(_params), do: {:error, :missing_required_fields}
+
+  @doc """
+  Builds a dynamic Pix payload, pointing to a URL provided by the receiver's bank.
+
+  Required: `:url` (without `https://`), `:merchant_name`, `:merchant_city`.
+  Amount and txid live in the bank's server, not in the payload.
+
+      iex> {:ok, payload} = PixBrcode.encode_dynamic(%{url: "pix.example.com/qr/v2/abc",
+      ...>   merchant_name: "Fulano de Tal", merchant_city: "BRASILIA"})
+      iex> PixBrcode.decode(payload) |> elem(1) |> Map.take([:type, :url])
+      %{type: :dynamic, url: "pix.example.com/qr/v2/abc"}
+  """
+  def encode_dynamic(%{url: url, merchant_name: name, merchant_city: city} = params)
+      when is_binary(url) and is_binary(name) and is_binary(city) do
+    with :ok <- check(url != "" and not String.contains?(url, "://"), :invalid_url) do
+      build(params, [{"25", url}], nil, "***")
+    end
+  end
+
+  def encode_dynamic(_params), do: {:error, :missing_required_fields}
+
+  # Shared by both encoders: validates name/city, assembles the fields and appends the CRC.
+  defp build(%{merchant_name: name, merchant_city: city}, account_fields, amount, txid) do
+    name = strip_accents(name)
+    city = strip_accents(city)
+
+    with :ok <- check(String.length(name) in 1..25, :invalid_merchant_name),
          :ok <- check(String.length(city) in 1..15, :invalid_merchant_city),
-         :ok <- check(txid == "***" or txid =~ ~r/^[A-Za-z0-9]{1,25}$/, :invalid_txid),
-         {:ok, amount} <- format_amount(Map.get(params, :amount)),
-         {:ok, account} <-
-           TLV.encode([{"00", @gui}, {"01", key}, {"02", Map.get(params, :description)}]),
+         {:ok, account} <- TLV.encode([{"00", @gui} | account_fields]),
          {:ok, additional} <- TLV.encode([{"05", txid}]),
          {:ok, payload} <-
            TLV.encode([
@@ -48,8 +76,6 @@ defmodule PixBrcode do
       {:ok, payload <> CRC16.checksum(payload)}
     end
   end
-
-  def encode(_params), do: {:error, :missing_required_fields}
 
   @doc """
   Reads a Pix payload, checking CRC, structure and GUI.
@@ -132,7 +158,7 @@ defmodule PixBrcode do
   end
 
   defp format_amount(amount) when is_binary(amount) do
-    if amount =~ ~r/^\d+\.\d{2}$/, do: {:ok, amount}, else: {:error, :invalid_amount}
+    if amount =~ ~r/\A\d+\.\d{2}\z/, do: {:ok, amount}, else: {:error, :invalid_amount}
   end
 
   defp format_amount(_amount), do: {:error, :invalid_amount}
