@@ -26,3 +26,6 @@ pix_brcode-*.tar
 # Local notes, not part of the project.
 CLAUDE.md
 DEVLOG.md
+
+# ElixirLS cache.
+/.elixir_ls/
