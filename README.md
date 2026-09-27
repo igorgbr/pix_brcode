@@ -1,5 +1,10 @@
 # PixBrcode
 
+[![CI](https://github.com/igorgbr/pix_brcode/actions/workflows/ci.yml/badge.svg)](https://github.com/igorgbr/pix_brcode/actions/workflows/ci.yml)
+[![Hex.pm](https://img.shields.io/hexpm/v/pix_brcode.svg)](https://hex.pm/packages/pix_brcode)
+[![Docs](https://img.shields.io/badge/hex-docs-purple.svg)](https://hexdocs.pm/pix_brcode)
+[![License](https://img.shields.io/hexpm/l/pix_brcode.svg)](https://github.com/igorgbr/pix_brcode/blob/main/LICENSE)
+
 Generate, parse and validate [Pix](https://www.bcb.gov.br/estabilidadefinanceira/pix)
 "copia e cola" payloads (BR Code), the text behind every Pix QR code.
 
