@@ -8,7 +8,7 @@ defmodule PixBrcode.MixProject do
     [
       app: :pix_brcode,
       version: @version,
-      elixir: "~> 1.14",
+      elixir: "~> 1.15",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       description: "Generate, parse and validate Pix \"copia e cola\" payloads (BR Code).",

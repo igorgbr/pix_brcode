@@ -25,7 +25,8 @@ defmodule PixBrcode do
     with :ok <- check(valid_key?(key), :invalid_key),
          :ok <- check(txid == "***" or txid =~ ~r/\A[A-Za-z0-9]{1,25}\z/, :invalid_txid),
          {:ok, amount} <- format_amount(Map.get(params, :amount)) do
-      build(params, [{"01", key}, {"02", Map.get(params, :description)}], amount, txid)
+      description = params[:description] && strip_accents(params[:description])
+      build(params, [{"01", key}, {"02", description}], amount, txid)
     end
   end
 
@@ -102,7 +103,8 @@ defmodule PixBrcode do
          fields = Map.new(fields),
          {:ok, account} <- TLV.decode(Map.get(fields, "26", "")),
          account = Map.new(account),
-         :ok <- check(account["00"] == @gui, :invalid_gui),
+         # Banks differ in case (Nubank sends "BR.GOV.BCB.PIX"), so compare case-insensitively.
+         :ok <- check(String.downcase(account["00"] || "") == @gui, :invalid_gui),
          :ok <- check(Map.has_key?(account, "01") or Map.has_key?(account, "25"), :missing_key),
          :ok <- check(is_nil(account["01"]) or valid_key?(account["01"]), :invalid_key),
          {:ok, additional} <- TLV.decode(Map.get(fields, "62", "")) do
@@ -158,7 +160,9 @@ defmodule PixBrcode do
   end
 
   defp format_amount(amount) when is_binary(amount) do
-    if amount =~ ~r/\A\d+\.\d{2}\z/, do: {:ok, amount}, else: {:error, :invalid_amount}
+    if amount =~ ~r/\A\d+\.\d{2}\z/ and amount =~ ~r/[1-9]/,
+      do: {:ok, amount},
+      else: {:error, :invalid_amount}
   end
 
   defp format_amount(_amount), do: {:error, :invalid_amount}
