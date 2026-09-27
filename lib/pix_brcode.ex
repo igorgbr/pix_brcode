@@ -21,12 +21,13 @@ defmodule PixBrcode do
   def encode(%{key: key, merchant_name: name, merchant_city: city} = params)
       when is_binary(key) and is_binary(name) and is_binary(city) do
     txid = Map.get(params, :txid) || "***"
+    description = Map.get(params, :description)
 
     with :ok <- check(valid_key?(key), :invalid_key),
          :ok <- check(txid == "***" or txid =~ ~r/\A[A-Za-z0-9]{1,25}\z/, :invalid_txid),
+         :ok <- check(is_nil(description) or clean(description, 99) != nil, :invalid_description),
          {:ok, amount} <- format_amount(Map.get(params, :amount)) do
-      description = params[:description] && strip_accents(params[:description])
-      build(params, [{"01", key}, {"02", description}], amount, txid)
+      build(params, [{"01", key}, {"02", description && clean(description, 99)}], amount, txid)
     end
   end
 
@@ -54,11 +55,11 @@ defmodule PixBrcode do
 
   # Shared by both encoders: validates name/city, assembles the fields and appends the CRC.
   defp build(%{merchant_name: name, merchant_city: city}, account_fields, amount, txid) do
-    name = strip_accents(name)
-    city = strip_accents(city)
+    name = clean(name, 25)
+    city = clean(city, 15)
 
-    with :ok <- check(String.length(name) in 1..25, :invalid_merchant_name),
-         :ok <- check(String.length(city) in 1..15, :invalid_merchant_city),
+    with :ok <- check(name != nil, :invalid_merchant_name),
+         :ok <- check(city != nil, :invalid_merchant_city),
          {:ok, account} <- TLV.encode([{"00", @gui} | account_fields]),
          {:ok, additional} <- TLV.encode([{"05", txid}]),
          {:ok, payload} <-
@@ -122,6 +123,8 @@ defmodule PixBrcode do
     end
   end
 
+  def decode(_payload), do: {:error, :invalid_format}
+
   @doc """
   Returns `true` if `payload` decodes successfully.
 
@@ -156,16 +159,28 @@ defmodule PixBrcode do
     {units, cents} =
       cents |> Integer.to_string() |> String.pad_leading(3, "0") |> String.split_at(-2)
 
-    {:ok, units <> "." <> cents}
+    format_amount(units <> "." <> cents)
   end
 
+  # Field 54 holds at most 13 characters (BR Code manual).
   defp format_amount(amount) when is_binary(amount) do
-    if amount =~ ~r/\A\d+\.\d{2}\z/ and amount =~ ~r/[1-9]/,
+    if amount =~ ~r/\A\d+\.\d{2}\z/ and amount =~ ~r/[1-9]/ and byte_size(amount) <= 13,
       do: {:ok, amount},
       else: {:error, :invalid_amount}
   end
 
   defp format_amount(_amount), do: {:error, :invalid_amount}
+
+  # Strips accents and requires printable ASCII, so the TLV length is the same in
+  # characters and bytes for every bank's parser. Returns nil when invalid.
+  defp clean(value, max) when is_binary(value) do
+    if String.valid?(value) do
+      value = strip_accents(value)
+      if value =~ ~r/\A[\x20-\x7E]+\z/ and String.length(value) <= max, do: value
+    end
+  end
+
+  defp clean(_value, _max), do: nil
 
   # "São João" -> "Sao Joao": NFD splits letter and accent; \p{Mn} matches only the accent.
   defp strip_accents(string) do

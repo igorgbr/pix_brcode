@@ -48,6 +48,21 @@ defmodule PixBrcodeTest do
       assert PixBrcode.encode(Map.put(@base, :amount, 5)) |> elem(1) =~ "54040.05"
     end
 
+    test "rejects invalid input without raising" do
+      assert PixBrcode.encode(Map.put(@base, :amount, "12345678901234.00")) ==
+               {:error, :invalid_amount}
+
+      assert PixBrcode.encode(Map.put(@base, :merchant_name, <<0xFF>>)) ==
+               {:error, :invalid_merchant_name}
+
+      assert PixBrcode.encode(Map.put(@base, :merchant_name, "Café ☕")) ==
+               {:error, :invalid_merchant_name}
+
+      assert PixBrcode.encode(Map.put(@base, :description, 42)) == {:error, :invalid_description}
+      assert PixBrcode.decode(nil) == {:error, :invalid_format}
+      refute PixBrcode.valid?(nil)
+    end
+
     test "strips accents from name and city" do
       {:ok, payload} =
         PixBrcode.encode(%{@base | merchant_name: "João", merchant_city: "São Paulo"})

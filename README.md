@@ -81,8 +81,9 @@ All functions return `{:ok, result}` or `{:error, reason}`:
 |---|---|
 | `:missing_required_fields` | a required field is missing or is not a string |
 | `:invalid_key` | key does not match any DICT format |
-| `:invalid_merchant_name` / `:invalid_merchant_city` | empty or too long |
-| `:invalid_amount` | not positive integer cents nor a `"10.50"` string |
+| `:invalid_merchant_name` / `:invalid_merchant_city` | empty, too long, or not printable ASCII after removing accents |
+| `:invalid_description` | not a string, or not printable ASCII after removing accents |
+| `:invalid_amount` | not positive integer cents nor a `"10.50"` string, or over 13 characters |
 | `:invalid_txid` | not `"***"` nor 1–25 letters/digits |
 | `:invalid_url` | empty or contains a protocol (`https://`) |
 | `{:too_long, id}` | field `id` would exceed 99 characters |
