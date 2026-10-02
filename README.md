@@ -112,4 +112,4 @@ of the [DICT API](https://github.com/bacen/pix-dict-api).
 
 ## License
 
-MIT. See [LICENSE](https://github.com/igorgbr/pix_brcode/blob/main/LICENSE).
+[MIT](https://github.com/igorgbr/pix_brcode/blob/main/LICENSE) — Igor Giamoniano.
