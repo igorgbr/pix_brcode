@@ -11,7 +11,7 @@ Generate, parse and validate [Pix](https://www.bcb.gov.br/estabilidadefinanceira
 - Static payloads (key, optional amount, txid, description)
 - Dynamic payloads (URL provided by the receiver's bank)
 - Parsing into a struct, with CRC16 check
-- Key format validation (CPF, CNPJ, phone, e-mail, random key/EVP)
+- Key validation and normalization (CPF, CNPJ including alphanumeric, phone, e-mail, random key/EVP)
 - Zero runtime dependencies
 
 ## Installation
@@ -19,7 +19,7 @@ Generate, parse and validate [Pix](https://www.bcb.gov.br/estabilidadefinanceira
 ```elixir
 def deps do
   [
-    {:pix_brcode, "~> 0.1.0"}
+    {:pix_brcode, "~> 0.2.0"}
   ]
 end
 ```
@@ -44,8 +44,20 @@ PixBrcode.encode(%{
   removed (`"Brasília"` becomes `"Brasilia"`). Longer values return an error; they are never truncated.
 - `amount` never goes through floats: pass integer cents (`1050`) or a string with
   exactly two decimals (`"10.50"`).
-- `key` must follow the formats of the Central Bank's DICT: `"12345678901"` (CPF),
-  `"12345678901234"` (CNPJ), `"+5561998765432"` (phone), lowercase e-mail, or lowercase UUID (EVP).
+- `key` is written in the canonical format of the Central Bank's DICT. Formatted input
+  is accepted, so you can pass what the user typed:
+
+  | Type | Input | Written as |
+  |---|---|---|
+  | CPF | `"123.456.789-09"` | `"12345678909"` |
+  | CNPJ | `"11.222.333/0001-81"`, `"12.ABC.345/01DE-35"` | `"11222333000181"`, `"12ABC34501DE35"` |
+  | Phone | `"+55 (11) 98765-4321"`, `"(11) 98765-4321"`, `"5511987654321"` | `"+5511987654321"` |
+  | E-mail | `" Fulano@Exemplo.com "` | `"fulano@exemplo.com"` |
+  | EVP | uppercase UUID | lowercase UUID |
+
+  CPF and CNPJ must have valid check digits. An 11-digit number such as `"11987654321"`
+  is read as a CPF; for a phone number without `+55`, pass `key_type: :phone`
+  (also `:cpf`, `:cnpj`, `:email`, `:evp`).
 
 ### Dynamic payload
 
@@ -75,8 +87,9 @@ PixBrcode.valid?("not a pix")
 #=> false
 ```
 
-`decode/1` checks the CRC, the structure, the `br.gov.bcb.pix` GUI and the key format.
-Leading/trailing whitespace is ignored.
+`decode/1` checks the CRC, the structure, the `br.gov.bcb.pix` GUI and the key format,
+and returns the key in canonical form. Check digits are not verified when decoding, since
+the CRC already guarantees the payload is intact. Leading/trailing whitespace is ignored.
 
 ### Errors
 
@@ -85,7 +98,8 @@ All functions return `{:ok, result}` or `{:error, reason}`:
 | Reason | When |
 |---|---|
 | `:missing_required_fields` | a required field is missing or is not a string |
-| `:invalid_key` | key does not match any DICT format |
+| `:invalid_key` | key does not match any DICT format, or CPF/CNPJ has wrong check digits |
+| `:invalid_key_type` | `:key_type` is not one of `:cpf`, `:cnpj`, `:phone`, `:email`, `:evp` |
 | `:invalid_merchant_name` / `:invalid_merchant_city` | empty, too long, or not printable ASCII after removing accents |
 | `:invalid_description` | not a string, or not printable ASCII after removing accents |
 | `:invalid_amount` | not positive integer cents nor a `"10.50"` string, or over 13 characters |
@@ -108,7 +122,8 @@ svg = payload |> EQRCode.encode() |> EQRCode.svg()
 ## Specification
 
 Based on the Central Bank of Brazil's *Manual do BR Code* (EMV QRCPS-MPM) and the key formats
-of the [DICT API](https://github.com/bacen/pix-dict-api).
+of the [DICT API](https://github.com/bacen/pix-dict-api) and the *Manual Operacional do DICT*
+(v8.5, alphanumeric CNPJ).
 
 ## License
 

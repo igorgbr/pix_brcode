@@ -101,24 +101,51 @@ defmodule PixBrcodeTest do
   end
 
   describe "key validation" do
+    # Fictitious documents with valid check digits. 12ABC34501DE35 is the Receita's own
+    # alphanumeric CNPJ example.
     @valid_keys [
-      "12345678901",
-      "12345678901234",
+      "12345678909",
+      "11222333000181",
+      "12ABC34501DE35",
       "+5561998765432",
       "pix@bcb.gov.br",
       "123e4567-e89b-12d3-a456-426655440000"
     ]
 
+    # {input, canonical key}
+    @formatted_keys [
+      {"123.456.789-09", "12345678909"},
+      {"123 456 789 09", "12345678909"},
+      {" 12345678909\n", "12345678909"},
+      {"11.222.333/0001-81", "11222333000181"},
+      {"12.abc.345/01de-35", "12ABC34501DE35"},
+      {"+55 (11) 98765-4321", "+5511987654321"},
+      {"(11) 98765-4321", "+5511987654321"},
+      {"5511987654321", "+5511987654321"},
+      {"+1 415 555 2671", "+14155552671"},
+      {"  Fulano@Exemplo.com ", "fulano@exemplo.com"},
+      {"123E4567-E89B-12D3-A456-426655440000", "123e4567-e89b-12d3-a456-426655440000"}
+    ]
+
     @invalid_keys [
       "",
-      "123.456.789-01",
+      "12345678901",
+      "00000000000",
+      "123.456.789_09",
+      "12345678901234",
+      "12.ABC.345/01DE-34",
+      "12ABC34501DEAB",
       "1234567890",
       "+0061998765432",
-      "Pix@BCB.gov.br",
+      "+55(11)",
       "pix@",
-      "123E4567-E89B-12D3-A456-426655440000",
-      "12345678901\n",
-      String.duplicate("a", 70) <> "@bcb.gov.br"
+      String.duplicate("a", 70) <> "@bcb.gov.br",
+      # Unicode case mapping must not turn these into other, valid keys.
+      "\u212Aey@exemplo.com",
+      "12\u00DFC34501DE33",
+      "12\uFB01C34501DE70",
+      # Invalid UTF-8
+      <<0xE2, 0x9B, 0x85, 0x96>>
     ]
 
     test "encode/1 accepts the DICT key formats" do
@@ -128,10 +155,60 @@ defmodule PixBrcodeTest do
       end
     end
 
-    test "encode/1 rejects malformed keys" do
+    test "encode/1 normalizes formatted keys to the DICT canonical form" do
+      for {input, key} <- @formatted_keys do
+        assert {:ok, payload} = PixBrcode.encode(%{@base | key: input}), inspect(input)
+        assert {:ok, %{key: ^key}} = PixBrcode.decode(payload)
+      end
+    end
+
+    test "encode/1 rejects malformed keys and wrong check digits" do
       for key <- @invalid_keys do
         assert PixBrcode.encode(%{@base | key: key}) == {:error, :invalid_key}, inspect(key)
       end
+    end
+
+    test "an 11-digit number is a CPF unless key_type says otherwise" do
+      assert PixBrcode.encode(%{@base | key: "11987654321"}) == {:error, :invalid_key}
+
+      assert {:ok, payload} =
+               PixBrcode.encode(Map.merge(@base, %{key: "11987654321", key_type: :phone}))
+
+      assert {:ok, %{key: "+5511987654321"}} = PixBrcode.decode(payload)
+
+      assert PixBrcode.encode(Map.merge(@base, %{key: "pix@bcb.gov.br", key_type: :cpf})) ==
+               {:error, :invalid_key}
+
+      assert PixBrcode.encode(Map.merge(@base, %{key: "x", key_type: :telefone})) ==
+               {:error, :invalid_key_type}
+    end
+
+    test "key_type accepts every DICT type" do
+      for {key, type, canonical} <- [
+            {"123.456.789-09", :cpf, "12345678909"},
+            {"12.abc.345/01de-35", :cnpj, "12ABC34501DE35"},
+            {" Pix@BCB.gov.br", :email, "pix@bcb.gov.br"},
+            {"123E4567-E89B-12D3-A456-426655440000", :evp, "123e4567-e89b-12d3-a456-426655440000"}
+          ] do
+        assert {:ok, payload} = PixBrcode.encode(Map.merge(@base, %{key: key, key_type: type}))
+        assert {:ok, %{key: ^canonical}} = PixBrcode.decode(payload)
+      end
+    end
+
+    test "invalid UTF-8 returns an error instead of raising" do
+      bad = <<0xE2, 0x9B, 0x85, 0x96>>
+      assert PixBrcode.decode(bad <> "6304ABCD") == {:error, :invalid_format}
+      refute PixBrcode.valid?(bad)
+
+      assert PixBrcode.encode_dynamic(%{url: bad, merchant_name: "F", merchant_city: "SP"}) ==
+               {:error, :invalid_url}
+    end
+
+    test "decode/1 normalizes the key but does not check its digits" do
+      {:ok, account} =
+        PixBrcode.TLV.encode([{"00", "br.gov.bcb.pix"}, {"01", "123.456.789-01"}])
+
+      assert {:ok, %{key: "12345678901"}} = PixBrcode.decode(build([{"26", account}]))
     end
   end
 
